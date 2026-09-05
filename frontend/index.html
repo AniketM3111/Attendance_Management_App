@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Attendly | Attendance Management</title>
+  <style>
+    :root { --ink:#172b4d; --muted:#6b7a90; --line:#e5eaf1; --brand:#1769e0; --soft:#f5f8fc; --green:#16805c; --red:#d94b5b; }
+    * { box-sizing:border-box } body { margin:0; font:14px Inter, ui-sans-serif, system-ui, sans-serif; color:var(--ink); background:var(--soft) }
+    .shell { display:flex; min-height:100vh } aside { width:240px; background:#10233f; color:#c8d4e5; padding:28px 18px }
+    .brand { color:#fff; font-size:21px; font-weight:800; margin:0 12px 42px; letter-spacing:-.5px }
+    .brand span { color:#55b7ff } nav a { display:block; padding:12px 14px; margin:4px 0; border-radius:8px; color:inherit; text-decoration:none }
+    nav a.active, nav a:hover { background:#213d63; color:#fff } main { flex:1; padding:28px 4vw; max-width:1400px }
+    header { display:flex; justify-content:space-between; align-items:center; margin-bottom:28px } h1 { margin:0; font-size:28px; letter-spacing:-.7px } .sub { color:var(--muted); margin-top:6px }
+    button, select, input { font:inherit } button { border:0; border-radius:7px; padding:10px 15px; background:var(--brand); color:#fff; font-weight:700; cursor:pointer } button.secondary { background:#e8f0fc; color:var(--brand) }
+    .cards { display:grid; grid-template-columns:repeat(4, minmax(140px,1fr)); gap:16px; margin-bottom:25px } .card, .panel { background:#fff; border:1px solid var(--line); border-radius:12px; padding:20px; box-shadow:0 2px 8px #183b5d08 }
+    .label { color:var(--muted); font-size:13px } .value { font-size:30px; font-weight:800; margin-top:10px } .positive { color:var(--green) } .negative { color:var(--red) }
+    .grid { display:grid; grid-template-columns:1.3fr 1fr; gap:20px } .panel h2 { font-size:17px; margin:0 0 18px } table { width:100%; border-collapse:collapse } th, td { text-align:left; padding:12px 8px; border-bottom:1px solid var(--line) } th { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.4px }
+    .pill { border-radius:20px; padding:4px 9px; font-size:12px; font-weight:700; background:#eef2f6; color:var(--muted) } .pill.present { background:#e5f6ef; color:var(--green) } .pill.absent { background:#ffeaec; color:var(--red) } .pill.late { background:#fff3da; color:#a96700 }
+    .toolbar { display:flex; gap:10px; margin-bottom:15px } select { border:1px solid var(--line); border-radius:7px; padding:9px; background:#fff; color:var(--ink) } .empty { color:var(--muted); text-align:center; padding:30px }
+    dialog { border:0; border-radius:14px; padding:0; width:min(560px, calc(100% - 32px)); box-shadow:0 20px 70px #10233f55 } dialog::backdrop { background:#10233f99 } .capture-box { padding:22px } video { width:100%; max-height:360px; background:#10233f; border-radius:10px; object-fit:cover } .dialog-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:16px }
+    #notice { position:fixed; right:22px; bottom:22px; background:#10233f; color:#fff; padding:12px 16px; border-radius:8px; display:none }
+    @media (max-width:800px) { aside { width:68px; padding:20px 8px } .brand { font-size:0; margin:0 10px 42px } .brand span { font-size:22px } nav a { font-size:0; text-align:center } nav a:first-letter { font-size:18px } main { padding:22px 16px } .cards { grid-template-columns:repeat(2,1fr) } .grid { grid-template-columns:1fr } }
+  </style>
+</head>
+<body>
+<div class="shell">
+  <aside><div class="brand">Attend<span>ly</span></div><nav><a class="active" href="#">▦ &nbsp; Overview</a><a href="#students">♙ &nbsp; Students</a><a href="#schools">⌂ &nbsp; Schools</a><a href="/docs">⚙ &nbsp; API docs</a></nav></aside>
+  <main>
+    <header><div><h1>Good morning, Admin</h1><div class="sub" id="today"></div></div><div class="toolbar"><button class="secondary" id="refresh">Refresh data</button><button id="open-capture">Capture attendance</button></div></header>
+    <section class="cards">
+      <div class="card"><div class="label">Total schools</div><div class="value" id="schools-count">—</div></div>
+      <div class="card"><div class="label">Total students</div><div class="value" id="students-count">—</div></div>
+      <div class="card"><div class="label">Present today</div><div class="value positive" id="present-count">—</div></div>
+      <div class="card"><div class="label">Absent today</div><div class="value negative" id="absent-count">—</div></div>
+    </section>
+    <div class="grid">
+      <section class="panel" id="students"><h2>Student attendance</h2><div class="toolbar"><select id="school-filter"><option value="">All schools</option></select><button class="secondary" id="sync">Sync offline records</button></div><table><thead><tr><th>Student</th><th>School</th><th>Today</th></tr></thead><tbody id="students-table"></tbody></table></section>
+      <section class="panel" id="schools"><h2>Schools</h2><table><thead><tr><th>School</th><th>District</th><th>Block</th></tr></thead><tbody id="schools-table"></tbody></table></section>
+    </div>
+  </main>
+</div><dialog id="capture-dialog"><div class="capture-box"><h2>Capture attendance</h2><p class="sub">Select the desired student, allow camera access, then capture and stop.</p><select id="capture-student"></select><video id="capture-video" autoplay playsinline></video><canvas id="capture-canvas" hidden></canvas><div class="dialog-actions"><button class="secondary" id="close-capture">Cancel</button><button id="capture-button">Start camera</button></div></div></dialog><div id="notice"></div>
+<script>
+  const key = localStorage.getItem("attendance_api_key") || "change-me-in-production";
+  const headers = {"X-API-Key": key, "Content-Type": "application/json"};
+  const $ = id => document.getElementById(id);
+  const notice = text => { $("notice").textContent = text; $("notice").style.display="block"; setTimeout(() => $("notice").style.display="none", 2800); };
+  const api = path => fetch(path, {headers}).then(r => { if (!r.ok) throw new Error(`Request failed (${r.status})`); return r.json(); });
+  const status = value => value ? `<span class="pill ${value}">${value[0].toUpperCase()+value.slice(1)}</span>` : '<span class="pill">Not marked</span>';
+  let cameraStream = null;
+  async function load() {
+    try {
+      const [summary, schools, students] = await Promise.all([api("/api/dashboard"), api("/api/schools"), api("/api/students")]);
+      $("schools-count").textContent=summary.total_schools; $("students-count").textContent=summary.total_students;
+      $("present-count").textContent=summary.present_today; $("absent-count").textContent=summary.absent_today;
+      $("school-filter").innerHTML='<option value="">All schools</option>'+schools.map(s=>`<option value="${s.id}">${s.name}</option>`).join("");
+      $("schools-table").innerHTML=schools.length ? schools.map(s=>`<tr><td><strong>${s.name}</strong></td><td>${s.district}</td><td>${s.block}</td></tr>`).join("") : '<tr><td colspan="3" class="empty">No schools yet</td></tr>';
+      window.schoolsById=Object.fromEntries(schools.map(s=>[s.id,s.name])); window.students=students; renderStudents(); $("capture-student").innerHTML=students.map(s=>`<option value="${s.id}">${s.name} — ${window.schoolsById[s.school_id]}</option>`).join(""); notice("Dashboard updated");
+    } catch (error) { notice(error.message); }
+  }
+  function renderStudents() { const selected=$("school-filter").value; const rows=(window.students||[]).filter(s=>!selected||s.school_id===Number(selected)); $("students-table").innerHTML=rows.length ? rows.map(s=>`<tr><td><strong>${s.name}</strong><br><small class="label">${s.external_id}</small></td><td>${window.schoolsById[s.school_id]||"Unknown school"}</td><td>${status(s.attendance_status)}</td></tr>`).join("") : '<tr><td colspan="3" class="empty">No students found</td></tr>'; }
+  $("school-filter").addEventListener("change", renderStudents); $("refresh").addEventListener("click", load);
+  $("sync").addEventListener("click", () => notice("Offline queue is empty"));
+  $("open-capture").addEventListener("click", async () => { $("capture-dialog").showModal(); $("capture-button").textContent="Start camera"; });
+  $("close-capture").addEventListener("click", closeCapture);
+  $("capture-button").addEventListener("click", async () => {
+    if (!cameraStream) {
+      try { cameraStream = await navigator.mediaDevices.getUserMedia({video:true, audio:false}); $("capture-video").srcObject=cameraStream; $("capture-button").textContent="Capture and stop"; }
+      catch (error) { notice("Camera access was denied or is unavailable"); }
+      return;
+    }
+    const video=$("capture-video"), canvas=$("capture-canvas"); canvas.width=video.videoWidth; canvas.height=video.videoHeight; canvas.getContext("2d").drawImage(video,0,0); const blob=await new Promise(resolve=>canvas.toBlob(resolve,"image/jpeg",0.85)); closeCapture();
+    const body=new FormData(); body.append("teacher_id","1"); body.append("student_id",$("capture-student").value); body.append("capture",blob,"attendance-capture.jpg");
+    try { const response=await fetch("/api/attendance/capture",{method:"POST",headers:{"X-API-Key":key},body}); const result=await response.json(); if(!response.ok) throw new Error(result.detail||"Attendance capture failed"); notice("Attendance marked successfully"); await load(); } catch(error) { notice(error.message); }
+  });
+  function closeCapture() { if(cameraStream) { cameraStream.getTracks().forEach(track=>track.stop()); cameraStream=null; } $("capture-video").srcObject=null; $("capture-dialog").close(); }
+  $("today").textContent = new Intl.DateTimeFormat(undefined,{weekday:"long",month:"long",day:"numeric",year:"numeric"}).format(new Date()); load();
+</script>
+</body>
+</html>
